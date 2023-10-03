@@ -12,6 +12,7 @@ router_v1 = APIRouter()
 
 router_v1.include_router(project_router, prefix="/project", tags=["Projects"])
 
+
 @router_default.get("/alive/")
 async def alive():
     settings = Inject(get_settings)

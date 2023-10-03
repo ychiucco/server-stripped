@@ -40,6 +40,12 @@ async def get_list_project(
     """
     Return list of projects user is member of
     """
+
+    from devtools import debug
+    settings = get_settings()
+    debug(id(settings))
+    debug(settings)
+
     stm = (
         select(Project)
         .join(LinkUserProject)

@@ -39,9 +39,6 @@ class FractalConfigurationError(RuntimeError):
 T = TypeVar("T")
 
 
-load_dotenv(".fractal_server.env")
-
-
 class OAuthClientConfig(BaseModel):
     """
     OAuth Client Config Model
@@ -87,6 +84,7 @@ class Settings(BaseSettings):
 
     class Config:
         case_sensitive = True
+        env_file = ".fractal_server.env"
 
     PROJECT_NAME: str = "Fractal Server"
     PROJECT_VERSION: str = fractal_server.__VERSION__
@@ -425,6 +423,7 @@ class Settings(BaseSettings):
         self.check_db()
         self.check_runner()
 
+_settings = Settings()
 
-def get_settings(settings=Settings()) -> Settings:
-    return settings
+def get_settings():
+    return _settings
