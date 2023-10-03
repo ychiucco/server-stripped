@@ -10,32 +10,23 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
 from ....config import get_settings
+from ....syringe import Inject
+
+
 from ....logger import close_logger
 from ....logger import set_logger
-from ....syringe import Inject
 from ...db import AsyncSession
-from ...db import DBSyncSession
 from ...db import get_db
-from ...db import get_sync_db
-from ...models import ApplyWorkflow
 from ...models import Dataset
-from ...models import JobStatusType
 from ...models import LinkUserProject
 from ...models import Project
-from ...runner import submit_workflow
-from ...runner import validate_workflow_compatibility
-from ...runner.common import set_start_and_last_task_index
-from ...schemas import ApplyWorkflowCreate
-from ...schemas import ApplyWorkflowRead
 from ...schemas import ProjectCreate
 from ...schemas import ProjectRead
 from ...schemas import ProjectUpdate
 from ...security import current_active_user
 from ...security import User
 from ._aux_functions import _check_project_exists
-from ._aux_functions import _get_dataset_check_owner
 from ._aux_functions import _get_project_check_owner
-from ._aux_functions import _get_workflow_check_owner
 
 
 router = APIRouter()
@@ -154,181 +145,3 @@ async def delete_project(
     await db.commit()
     await db.close()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.post(
-    "/{project_id}/workflow/{workflow_id}/apply/",
-    status_code=status.HTTP_202_ACCEPTED,
-    response_model=ApplyWorkflowRead,
-)
-async def apply_workflow(
-    project_id: int,
-    workflow_id: int,
-    apply_workflow: ApplyWorkflowCreate,
-    background_tasks: BackgroundTasks,
-    input_dataset_id: int,
-    output_dataset_id: int,
-    user: User = Depends(current_active_user),
-    db: AsyncSession = Depends(get_db),
-    db_sync: DBSyncSession = Depends(
-        get_sync_db
-    ),  # FIXME: why both sync and async?  # noqa
-) -> Optional[ApplyWorkflowRead]:
-    output = await _get_dataset_check_owner(
-        project_id=project_id,
-        dataset_id=input_dataset_id,
-        user_id=user.id,
-        db=db,
-    )
-    input_dataset = output["dataset"]
-
-    output = await _get_dataset_check_owner(
-        project_id=project_id,
-        dataset_id=output_dataset_id,
-        user_id=user.id,
-        db=db,
-    )
-    output_dataset = output["dataset"]
-    if output_dataset.read_only:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Cannot apply workflow because output dataset "
-                f"({output_dataset_id=}) is read_only."
-            ),
-        )
-
-    workflow = await _get_workflow_check_owner(
-        project_id=project_id, workflow_id=workflow_id, user_id=user.id, db=db
-    )
-
-    if not workflow.task_list:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Workflow {workflow_id} has empty task list",
-        )
-
-    # Set values of first_task_index and last_task_index
-    num_tasks = len(workflow.task_list)
-    try:
-        first_task_index, last_task_index = set_start_and_last_task_index(
-            num_tasks,
-            first_task_index=apply_workflow.first_task_index,
-            last_task_index=apply_workflow.last_task_index,
-        )
-        apply_workflow.first_task_index = first_task_index
-        apply_workflow.last_task_index = last_task_index
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Invalid values for first_task_index or last_task_index "
-                f"(with {num_tasks=}).\n"
-                f"Original error: {str(e)}"
-            ),
-        )
-
-    # If backend is SLURM, check that the user has required attributes
-    settings = Inject(get_settings)
-    backend = settings.FRACTAL_RUNNER_BACKEND
-    if backend == "slurm":
-        if not user.slurm_user:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"FRACTAL_RUNNER_BACKEND={backend}, "
-                    f"but {user.slurm_user=}."
-                ),
-            )
-        if not user.cache_dir:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"FRACTAL_RUNNER_BACKEND={backend}, "
-                    f"but {user.cache_dir=}."
-                ),
-            )
-
-    # Check that datasets have the right number of resources
-    if not input_dataset.resource_list:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Input dataset has empty resource_list",
-        )
-    if len(output_dataset.resource_list) != 1:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Output dataset must have a single resource, "
-                f"but it has {len(output_dataset.resource_list)}"
-            ),
-        )
-
-    try:
-        validate_workflow_compatibility(
-            workflow=workflow,
-            input_dataset=input_dataset,
-            output_dataset=output_dataset,
-            first_task_index=apply_workflow.first_task_index,
-            last_task_index=apply_workflow.last_task_index,
-        )
-    except TypeError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
-        )
-
-    # Check that no other job with the same output_dataset_id is either
-    # SUBMITTED or RUNNING
-    stm = (
-        select(ApplyWorkflow)
-        .where(ApplyWorkflow.output_dataset_id == output_dataset_id)
-        .where(
-            ApplyWorkflow.status.in_(
-                [JobStatusType.SUBMITTED, JobStatusType.RUNNING]
-            )
-        )
-    )
-    res = await db.execute(stm)
-    if res.scalars().all():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Output dataset {output_dataset_id} is already in use "
-                "in pending/running job(s)."
-            ),
-        )
-
-    # Add new ApplyWorkflow object to DB
-    job = ApplyWorkflow(
-        project_id=project_id,
-        input_dataset_id=input_dataset_id,
-        output_dataset_id=output_dataset_id,
-        workflow_id=workflow_id,
-        workflow_dump=dict(
-            workflow.dict(exclude={"task_list"}),
-            task_list=[
-                dict(wf_task.task.dict(exclude={"task"}), task=wf_task.dict())
-                for wf_task in workflow.task_list
-            ],
-        ),
-        **apply_workflow.dict(),
-    )
-    db.add(job)
-    await db.commit()
-    await db.refresh(job)
-
-    background_tasks.add_task(
-        submit_workflow,
-        workflow_id=workflow.id,
-        input_dataset_id=input_dataset.id,
-        output_dataset_id=output_dataset.id,
-        job_id=job.id,
-        worker_init=apply_workflow.worker_init,
-        slurm_user=user.slurm_user,
-        user_cache_dir=user.cache_dir,
-    )
-
-    await db.close()
-    db_sync.close()
-
-    return job
