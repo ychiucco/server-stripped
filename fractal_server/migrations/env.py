@@ -6,9 +6,10 @@ from sqlalchemy.engine import Connection
 from sqlmodel import SQLModel
 
 from fractal_server.app import models  # noqa
-from fractal_server.config import get_settings
-from fractal_server.syringe import Inject
+from fractal_server.get_settings import get_settings
 
+
+settings = get_settings()
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -51,7 +52,6 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    settings = Inject(get_settings)
     settings.check_db()
     context.configure(
         url=settings.DATABASE_URL,

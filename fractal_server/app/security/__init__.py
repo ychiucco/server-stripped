@@ -55,8 +55,7 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import func
 from sqlmodel import select
 
-from ...config import get_settings
-from ...syringe import Inject
+from ...get_settings import get_settings
 from ..db import get_db
 from ..models.security import OAuthAccount
 from ..models.security import UserOAuth as User
@@ -64,6 +63,7 @@ from ..schemas.user import UserCreate
 from ..schemas.user import UserRead
 from ..schemas.user import UserUpdate
 
+settings = get_settings()
 
 class SQLModelUserDatabaseAsync(Generic[UP, ID], BaseUserDatabase[UP, ID]):
     """
@@ -204,7 +204,6 @@ cookie_transport = CookieTransport(cookie_samesite="none")
 
 
 def get_jwt_strategy() -> JWTStrategy:
-    settings = Inject(get_settings)
     return JWTStrategy(
         secret=settings.JWT_SECRET_KEY,  # type: ignore
         lifetime_seconds=settings.JWT_EXPIRE_SECONDS,
@@ -212,7 +211,6 @@ def get_jwt_strategy() -> JWTStrategy:
 
 
 def get_jwt_cookie_strategy() -> JWTStrategy:
-    settings = Inject(get_settings)
     return JWTStrategy(
         secret=settings.JWT_SECRET_KEY,  # type: ignore
         lifetime_seconds=settings.COOKIE_EXPIRE_SECONDS,
@@ -311,10 +309,6 @@ async def list_users(
 # environment variables (e.g. by setting OAUTH_FOO_CLIENT_ID and
 # OAUTH_FOO_CLIENT_SECRET), this list is empty
 
-# FIXME:Dependency injection should be wrapped within a function call to make
-# it truly lazy. This function could then be called on startup of the FastAPI
-# app (cf. fractal_server.main)
-settings = Inject(get_settings)
 
 for client_config in settings.OAUTH_CLIENTS_CONFIG:
 

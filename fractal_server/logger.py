@@ -20,8 +20,7 @@ from typing import Callable
 from typing import Optional
 from typing import Union
 
-from .config import get_settings
-from .syringe import Inject
+from .get_settings import get_settings
 
 
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -84,7 +83,7 @@ def set_logger(
     Returns:
         logger: The logger, as configured by the arguments.
     """
-
+    settings = get_settings()
     logger = logging.getLogger(logger_name)
     logger.propagate = False
     logger.setLevel(logging.DEBUG)
@@ -97,7 +96,6 @@ def set_logger(
 
     if not current_stream_handlers:
         stream_handler = logging.StreamHandler()
-        settings = Inject(get_settings)
         stream_handler.setLevel(settings.FRACTAL_LOGGING_LEVEL)
         stream_handler.setFormatter(LOG_FORMATTER)
         logger.addHandler(stream_handler)

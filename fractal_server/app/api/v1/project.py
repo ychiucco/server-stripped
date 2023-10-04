@@ -9,9 +9,6 @@ from fastapi import status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from ....config import get_settings
-from ....syringe import Inject
-
 
 from ....logger import close_logger
 from ....logger import set_logger
@@ -40,12 +37,7 @@ async def get_list_project(
     """
     Return list of projects user is member of
     """
-
-    from devtools import debug
-    settings = get_settings()
-    debug(id(settings))
-    debug(settings)
-
+    
     stm = (
         select(Project)
         .join(LinkUserProject)

@@ -12,10 +12,13 @@ from sqlalchemy.orm import Session as DBSyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from ...config import get_settings
 from ...logger import set_logger
-from ...syringe import Inject
 
+
+
+def get_settings():
+    from ...config import settings
+    return settings
 
 print(__name__)
 logger = set_logger(__name__)
@@ -39,12 +42,16 @@ class DB:
         try:
             return cls._engine_sync
         except AttributeError:
-            cls.set_db()
+            cls.set_db() #!
             return cls._engine_sync
 
     @classmethod
     def set_db(cls):
-        settings = Inject(get_settings)
+        settings = get_settings()
+        from devtools import debug
+        debug("ciao")
+        debug(set_logger())
+        debug("yuri")
         settings.check_db()
 
         if settings.DB_ENGINE == "sqlite":

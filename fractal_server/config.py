@@ -423,7 +423,4 @@ class Settings(BaseSettings):
         self.check_db()
         self.check_runner()
 
-_settings = Settings()
-
-def get_settings():
-    return _settings
+settings = Settings()
